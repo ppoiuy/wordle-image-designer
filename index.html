@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Wordle Image Designer</title>
+<link rel="stylesheet" href="styles.css">
+
+</head>
+<body>
+
+<h1>WORDLE IMAGE DESIGNER</h1>
+<p class="subtitle">Design a color pattern → find matching Wordle guesses</p>
+
+<div class="main-layout">
+  <!-- LEFT PANEL: Controls -->
+  <div class="panel">
+    <div class="panel-title">Setup</div>
+
+    <div>
+      <div style="display:flex; justify-content:space-between; align-items:baseline;">
+        <label>Answer Word</label>
+        <a id="wordle-today-link" href="#" target="_blank" rel="noopener" style="font-size:0.65rem; color:var(--accent); letter-spacing:0.05em; text-decoration:none; opacity:0.8;">Today's answer ↗</a>
+      </div>
+      <input type="text" id="target-input" maxlength="5" />
+      <div id="target-valid" style="color:#f87; margin-top:4px;"></div>
+    </div>
+
+    <div>
+      <label>Brush Color</label>
+      <div class="brush-selector">
+        <button class="brush-btn" id="brush-white" onclick="setBrush('white')">
+          <div class="swatch" style="background:#fff;"></div>
+          White
+        </button>
+        <button class="brush-btn" id="brush-yellow" onclick="setBrush('yellow')">
+          <div class="swatch" style="background:#c9b458;"></div>
+          Yellow
+        </button>
+        <button class="brush-btn active" id="brush-green" onclick="setBrush('green')">
+          <div class="swatch" style="background:#6aaa64;"></div>
+          Green
+        </button>
+      </div>
+    </div>
+
+    <div class="info-box">
+      1. Enter the answer word<br>
+      2. Paint the color pattern you want<br>
+      3. A fully green row marks the winning guess — rows after it are ignored<br>
+      4. Click <strong>Generate Words</strong> to find valid guesses<br><br>
+      🟩 right letter, right spot<br>
+      🟨 right letter, wrong spot<br>
+      ⬜ letter not in the word
+    </div>
+
+    <div>
+      <label>Actions</label>
+      <div class="grid-controls">
+        <button class="action-btn secondary" onclick="clearGrid()">Clear Grid</button>
+        <button class="action-btn secondary" id="undo-btn" onclick="undo()" disabled>Undo</button>
+        <button class="action-btn secondary" id="redo-btn" onclick="redo()" disabled>Redo</button>
+      </div>
+      <div class="grid-controls" style="margin-top:6px;">
+        <button class="action-btn secondary" onclick="flipGrid('horizontal')">↔ Flip H</button>
+        <button class="action-btn secondary" onclick="flipGrid('vertical')">↕ Flip V</button>
+      </div>
+    </div>
+
+    <div>
+      <label>Swap Colors</label>
+      <div class="grid-controls">
+        <button class="action-btn secondary swap-btn" onclick="swapColors('white','yellow')">
+          <span class="swap-swatch" style="background:#fff;"></span>⇄<span class="swap-swatch" style="background:#c9b458;"></span>
+        </button>
+        <button class="action-btn secondary swap-btn" onclick="swapColors('white','green')">
+          <span class="swap-swatch" style="background:#fff;"></span>⇄<span class="swap-swatch" style="background:#6aaa64;"></span>
+        </button>
+        <button class="action-btn secondary swap-btn" onclick="swapColors('yellow','green')">
+          <span class="swap-swatch" style="background:#c9b458;"></span>⇄<span class="swap-swatch" style="background:#6aaa64;"></span>
+        </button>
+      </div>
+    </div>
+
+    <div>
+      <label>Presets</label>
+      <div class="preset-save-row">
+        <input type="text" id="preset-name-input" placeholder="Preset name" />
+        <button class="action-btn secondary preset-save-btn" onclick="savePreset()">Save</button>
+      </div>
+      <div id="preset-list"></div>
+    </div>
+  </div>
+
+  <!-- CENTER: Grid -->
+  <div class="grid-center">
+    <div class="grid-wrapper" id="grid"></div>
+    <div class="last-row-note" id="win-row-note">Paint a row all green to mark the winning guess</div>
+    <button class="action-btn" onclick="generateWords()">Generate Words</button>
+  </div>
+
+  <!-- RIGHT PANEL: Results -->
+  <div class="panel">
+    <div class="panel-title">Results</div>
+    <div class="results-area" id="results">
+      <div class="status-msg info">Paint a pattern, then click Generate Words</div>
+    </div>
+  </div>
+</div>
+
+<script src="words.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
