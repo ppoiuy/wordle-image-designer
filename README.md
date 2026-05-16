@@ -1,6 +1,6 @@
 # Wordle Image Designer
 
-Paint a 5×6 Wordle grid and get a valid word sequence that matches your pattern.
+Design a 5×6 Wordle grid and get a valid word sequence that matches your pattern.
 
 **[Open the tool](https://ppoiuy.github.io/wordle-image-designer/)**
 
