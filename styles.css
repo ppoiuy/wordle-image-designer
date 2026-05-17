@@ -44,10 +44,10 @@
 
   .main-layout {
     display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    gap: 32px;
+    grid-template-columns: 1fr auto 1fr 0.6fr 0.8fr;
+    gap: 24px;
     width: 100%;
-    max-width: 960px;
+    max-width: 1400px;
     align-items: start;
   }
 
@@ -192,6 +192,41 @@
     margin-top: -8px;
   }
 
+  .generate-options {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .random-toggle-label {
+    font-size: 0.65rem;
+    color: #888;
+    letter-spacing: 0.08em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+  }
+  .random-toggle-label input[type="checkbox"] { cursor: pointer; accent-color: var(--accent); }
+  .random-toggle-label input[type="number"] {
+    width: 52px;
+    background: #111;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    -webkit-text-fill-color: var(--text);
+    font-family: 'Space Mono', monospace;
+    font-size: 0.65rem;
+    padding: 3px 6px;
+    text-align: center;
+    transition: opacity 0.2s;
+  }
+  .random-toggle-label input[type="number"]:disabled {
+    opacity: 0.25;
+    cursor: not-allowed;
+  }
+
   .action-btn {
     background: var(--accent);
     color: #000;
@@ -310,20 +345,25 @@
     margin-top: 4px;
   }
 
-  .result-sequence {
-    margin-top: 8px;
-    padding: 10px;
-    background: #111;
-    border-radius: 8px;
-    border: 1px solid #2a4a2a;
+  .result-alts {
+    margin-top: 6px;
+    max-height: 120px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
-  .result-sequence-label {
-    font-size: 0.65rem;
-    color: #6aaa64;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    margin-bottom: 6px;
+
+  .result-alt-word {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 0.85rem;
+    letter-spacing: 0.15em;
+    color: #555;
+    padding: 1px 4px;
+    border-radius: 3px;
   }
+  .result-alt-word:hover { color: #999; background: #1a1a1a; cursor: default; }
+
   .result-sequence-word {
     font-family: 'Bebas Neue', sans-serif;
     font-size: 1.1rem;

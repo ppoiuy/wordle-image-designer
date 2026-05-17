@@ -81,20 +81,21 @@
       </div>
     </div>
 
-    <div>
-      <label>Presets</label>
-      <div class="preset-save-row">
-        <input type="text" id="preset-name-input" placeholder="Preset name" />
-        <button class="action-btn secondary preset-save-btn" onclick="savePreset()">Save</button>
-      </div>
-      <div id="preset-list"></div>
-    </div>
   </div>
 
   <!-- CENTER: Grid -->
   <div class="grid-center">
     <div class="grid-wrapper" id="grid"></div>
     <div class="last-row-note" id="win-row-note">Paint a row all green to mark the winning guess</div>
+    <div class="generate-options">
+      <label class="random-toggle-label">
+        <input type="checkbox" id="random-toggle"> Random word selection
+      </label>
+      <label class="random-toggle-label">
+        Max alternatives: <input type="number" id="alt-limit" value="20" min="1" max="200" disabled>
+        <input type="checkbox" id="alt-unlimited" checked> All
+      </label>
+    </div>
     <button class="action-btn" onclick="generateWords()">Generate Words</button>
   </div>
 
@@ -104,6 +105,24 @@
     <div class="results-area" id="results">
       <div class="status-msg info">Paint a pattern, then click Generate Words</div>
     </div>
+  </div>
+
+  <!-- FAR RIGHT PANEL: Play Order -->
+  <div class="panel">
+    <div class="panel-title">Play Order</div>
+    <div id="sequence">
+      <div class="status-msg info">Generate words to see play order</div>
+    </div>
+  </div>
+
+  <!-- PRESETS PANEL -->
+  <div class="panel">
+    <div class="panel-title">Presets</div>
+    <div class="preset-save-row">
+      <input type="text" id="preset-name-input" placeholder="Preset name" />
+      <button class="action-btn secondary preset-save-btn" onclick="savePreset()">Save</button>
+    </div>
+    <div id="preset-list"></div>
   </div>
 </div>
 

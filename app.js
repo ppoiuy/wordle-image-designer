@@ -12,7 +12,7 @@ function getWordList(t) {
 }
 
 // ─── Cached DOM refs (set in init) ──────────────────────────────────────────
-let elGrid, elWinRowNote, elUndoBtn, elRedoBtn, elResults, elTargetValid, elTargetInput, elPresetList, elPresetNameInput;
+let elGrid, elWinRowNote, elUndoBtn, elRedoBtn, elResults, elSequence, elTargetValid, elTargetInput, elPresetList, elPresetNameInput;
 
 // ─── History ────────────────────────────────────────────────────────────────
 const MAX_HISTORY = 50;
@@ -180,19 +180,26 @@ function matchesPattern(guess, target, pattern) {
   return true;
 }
 
-// Find a word that scores the desired pattern against target
-function findWordForPattern(desiredPattern, target, words) {
+// Find up to `limit` words that score the desired pattern against target
+function findWordsForPattern(desiredPattern, target, words, limit = 20) {
+  const results = [];
   for (const w of words) {
     let ok = true;
     for (let i = 0; i < 5; i++) {
       if ((desiredPattern[i] === 'green') !== (w[i] === target[i])) { ok = false; break; }
     }
-    if (ok && matchesPattern(w, target, desiredPattern)) return w;
+    if (ok && matchesPattern(w, target, desiredPattern)) {
+      results.push(w);
+      if (results.length >= limit) break;
+    }
   }
-  return null;
+  return results;
 }
 
 // ─── Generate ────────────────────────────────────────────────────────────────
+let useRandom = false;
+let altLimit = Infinity;
+
 function generateWords() {
   const target = elTargetInput.value;
 
@@ -216,12 +223,16 @@ function generateWords() {
     for (let r = 0; r <= lastRow; r++) {
       const desired = grid[r];
       const isWin = r === winRow;
-      const word = isWin ? target : findWordForPattern(desired, target, words);
+      const matches = isWin ? [target] : findWordsForPattern(desired, target, words, altLimit);
+      const word = matches.length
+        ? (useRandom ? matches[Math.floor(Math.random() * matches.length)] : matches[0])
+        : null;
+      const alternatives = matches.filter(w => w !== word);
 
       if (word) {
-        found.push({ row: r + 1, word, pattern: desired, isWin });
+        found.push({ row: r + 1, word, pattern: desired, isWin, alternatives });
       } else {
-        found.push({ row: r + 1, word: null, pattern: desired, isWin: false });
+        found.push({ row: r + 1, word: null, pattern: desired, isWin: false, alternatives: [] });
         allFound = false;
       }
     }
@@ -235,7 +246,7 @@ function generateWords() {
       : '⚠ Some rows could not be matched — see below.';
     elResults.appendChild(statusEl);
 
-    found.forEach(({ row, word, pattern, isWin }) => {
+    found.forEach(({ row, word, pattern, isWin, alternatives }) => {
       const div = document.createElement('div');
       div.className = 'result-row';
       if (isWin) div.classList.add('win');
@@ -270,26 +281,32 @@ function generateWords() {
         noteEl.className = 'result-note';
         noteEl.textContent = 'No valid word found for this pattern';
         div.appendChild(noteEl);
+      } else if (alternatives.length) {
+        const altsDiv = document.createElement('div');
+        altsDiv.className = 'result-alts';
+        alternatives.forEach(alt => {
+          const w = document.createElement('div');
+          w.className = 'result-alt-word';
+          w.textContent = alt;
+          altsDiv.appendChild(w);
+        });
+        div.appendChild(altsDiv);
       }
 
       elResults.appendChild(div);
     });
 
-    // Summary sequence
+    // Play order panel
+    elSequence.innerHTML = '';
     if (allFound) {
-      const seqDiv = document.createElement('div');
-      seqDiv.className = 'result-sequence';
-      const seqLabel = document.createElement('div');
-      seqLabel.className = 'result-sequence-label';
-      seqLabel.textContent = '▶ Play in order:';
-      seqDiv.appendChild(seqLabel);
       found.forEach(({ word }) => {
         const w = document.createElement('div');
         w.className = 'result-sequence-word';
         w.textContent = word;
-        seqDiv.appendChild(w);
+        elSequence.appendChild(w);
       });
-      elResults.appendChild(seqDiv);
+    } else {
+      elSequence.innerHTML = '<div class="status-msg info">Fix unmatched rows to see play order</div>';
     }
   }, 50);
 }
@@ -400,6 +417,7 @@ elWinRowNote      = document.getElementById('win-row-note');
 elUndoBtn         = document.getElementById('undo-btn');
 elRedoBtn         = document.getElementById('redo-btn');
 elResults         = document.getElementById('results');
+elSequence        = document.getElementById('sequence');
 elTargetValid     = document.getElementById('target-valid');
 elTargetInput     = document.getElementById('target-input');
 elPresetList      = document.getElementById('preset-list');
@@ -410,6 +428,13 @@ restoreSession();
 renderGrid();
 setBrush('green');
 renderPresets();
+document.getElementById('random-toggle').addEventListener('change', function() { useRandom = this.checked; });
+const elAltLimit = document.getElementById('alt-limit');
+elAltLimit.addEventListener('change', function() { altLimit = Math.max(1, +this.value || 1); this.value = altLimit; });
+document.getElementById('alt-unlimited').addEventListener('change', function() {
+  altLimit = this.checked ? Infinity : (+elAltLimit.value || 20);
+  elAltLimit.disabled = this.checked;
+});
 
 const dateLabel = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 document.getElementById('wordle-today-link').href = `https://www.google.com/search?q=wordle+answer+${encodeURIComponent(dateLabel)}`;
