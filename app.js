@@ -197,7 +197,7 @@ function findWordsForPattern(desiredPattern, target, words, limit = 20) {
 }
 
 // ─── Generate ────────────────────────────────────────────────────────────────
-let useRandom = false;
+let useRandom = true;
 let altLimit = Infinity;
 
 function generateWords() {
