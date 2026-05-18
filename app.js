@@ -227,7 +227,7 @@ function generateWords() {
       const word = matches.length
         ? (useRandom ? matches[Math.floor(Math.random() * matches.length)] : matches[0])
         : null;
-      const alternatives = matches.filter(w => w !== word);
+      const alternatives = matches;
 
       if (word) {
         found.push({ row: r + 1, word, pattern: desired, isWin, alternatives });
