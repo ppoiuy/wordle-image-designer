@@ -5868,6 +5868,7 @@ mores
 moria
 morne
 morns
+moron
 morra
 morro
 morse
