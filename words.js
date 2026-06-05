@@ -6123,6 +6123,7 @@ neper
 nepit
 neral
 nerds
+nerdy
 nerka
 nerks
 nerol
