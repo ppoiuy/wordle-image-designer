@@ -12,7 +12,7 @@ function getWordList(t) {
 }
 
 // ─── Cached DOM refs (set in init) ──────────────────────────────────────────
-let elGrid, elWinRowNote, elUndoBtn, elRedoBtn, elResults, elSequence, elTargetValid, elTargetInput, elPresetList, elPresetNameInput;
+let elGrid, elWinRowNote, elUndoBtn, elRedoBtn, elResults, elSequence, elTargetValid, elTargetInput, elPresetList, elPresetNameInput, elStartInput, elStartValid;
 
 // ─── History ────────────────────────────────────────────────────────────────
 const MAX_HISTORY = 50;
@@ -71,29 +71,47 @@ function renderGrid() {
   elGrid.innerHTML = '';
   const winRow = findWinRow();
 
+  // When forced start is active, compute row 0's real pattern to display
+  const forcedRow0Pattern = (forcedStart && elTargetInput && elTargetInput.value.length === 5)
+    ? computePattern(forcedStart, elTargetInput.value)
+    : null;
+
   for (let r = 0; r < 6; r++) {
-    const isWin = winRow === r;
-    const isAfterWin = winRow !== -1 && r > winRow;
+    const isWin        = winRow === r;
+    const isAfterWin   = winRow !== -1 && r > winRow;
+    const isForcedRow  = forcedStart && r === 0;
 
     const rowDiv = document.createElement('div');
     rowDiv.className = 'grid-row';
     if (isAfterWin) rowDiv.classList.add('after-win');
+    if (isForcedRow) rowDiv.classList.add('forced-row');
 
     const lbl = document.createElement('div');
     lbl.className = 'row-label';
     lbl.textContent = r + 1;
     if (isWin) lbl.classList.add('win');
+    if (isForcedRow) lbl.classList.add('forced');
     rowDiv.appendChild(lbl);
 
     for (let c = 0; c < 5; c++) {
       const tile = document.createElement('div');
-      const color = isAfterWin ? 'absent' : grid[r][c];
+      let color;
+      if (isAfterWin) {
+        color = 'absent';
+      } else if (isForcedRow && forcedRow0Pattern) {
+        color = forcedRow0Pattern[c];
+      } else {
+        color = grid[r][c];
+      }
       tile.className = `tile color-${color}`;
       tile.dataset.r = r;
       tile.dataset.c = c;
 
       if (isAfterWin) {
         tile.title = 'This row is after the winning guess — unused';
+      } else if (isForcedRow) {
+        tile.title = `Locked to "${forcedStart}" — pattern auto-computed`;
+        tile.classList.add('tile-locked');
       } else {
         tile.addEventListener('click', onTileClick);
         tile.addEventListener('mouseenter', onTileEnter);
@@ -180,7 +198,31 @@ function matchesPattern(guess, target, pattern) {
   return true;
 }
 
-// Find up to `limit` words that score the desired pattern against target
+// Compute what pattern guess produces against target (returns array of 'green'|'yellow'|'white')
+function computePattern(guess, target) {
+  const pattern     = ['white','white','white','white','white'];
+  const targetUsed  = [false,false,false,false,false];
+  const guessUsed   = [false,false,false,false,false];
+  for (let i = 0; i < 5; i++) {
+    if (guess[i] === target[i]) {
+      pattern[i] = 'green';
+      targetUsed[i] = guessUsed[i] = true;
+    }
+  }
+  for (let i = 0; i < 5; i++) {
+    if (guessUsed[i]) continue;
+    for (let j = 0; j < 5; j++) {
+      if (targetUsed[j]) continue;
+      if (guess[i] === target[j]) {
+        pattern[i] = 'yellow';
+        targetUsed[j] = true;
+        break;
+      }
+    }
+  }
+  return pattern;
+}
+
 function findWordsForPattern(desiredPattern, target, words, limit = 20) {
   const results = [];
   for (const w of words) {
@@ -196,9 +238,101 @@ function findWordsForPattern(desiredPattern, target, words, limit = 20) {
   return results;
 }
 
+// ─── Hard-mode forward constraint helpers ────────────────────────────────────
+
+// Build cumulative hard-mode constraints from a list of prior {word, pattern} pairs.
+// greenAt:     position -> letter (must appear at that exact position)
+// mustContain: letters that must appear somewhere (from yellows)
+// mustExclude: letters that must NOT appear at all (scored white with no green/yellow hit)
+function buildHardModeConstraints(priorGuesses) {
+  const greenAt     = {};
+  const mustContain = new Set();
+  const mustExclude = new Set();
+  for (const { word, pattern } of priorGuesses) {
+    // First pass: find letters with at least one green or yellow hit
+    const hasHit = new Set();
+    for (let i = 0; i < 5; i++) {
+      if (pattern[i] === 'green' || pattern[i] === 'yellow') hasHit.add(word[i]);
+    }
+    for (let i = 0; i < 5; i++) {
+      if (pattern[i] === 'green') {
+        greenAt[i] = word[i];
+      } else if (pattern[i] === 'yellow') {
+        mustContain.add(word[i]);
+      } else if (pattern[i] === 'white' && !hasHit.has(word[i])) {
+        // Truly absent — not present in target at all
+        mustExclude.add(word[i]);
+      }
+    }
+  }
+  return { greenAt, mustContain, mustExclude };
+}
+
+function satisfiesHardMode(candidate, { greenAt, mustContain, mustExclude }) {
+  for (const [pos, letter] of Object.entries(greenAt)) {
+    if (candidate[+pos] !== letter) return false;
+  }
+  for (const letter of mustContain) {
+    if (!candidate.includes(letter)) return false;
+  }
+  for (const letter of mustExclude) {
+    if (candidate.includes(letter)) return false;
+  }
+  return true;
+}
+
+// Find words matching desiredPattern against target AND satisfying cumulative hard-mode constraints
+function findWordsForPatternHard(desiredPattern, target, words, constraints, limit) {
+  const results = [];
+  for (const w of words) {
+    let ok = true;
+    for (let i = 0; i < 5; i++) {
+      if ((desiredPattern[i] === 'green') !== (w[i] === target[i])) { ok = false; break; }
+    }
+    if (!ok) continue;
+    if (!matchesPattern(w, target, desiredPattern)) continue;
+    if (!satisfiesHardMode(w, constraints)) continue;
+    results.push(w);
+    if (results.length >= limit) break;
+  }
+  return results;
+}
+
+// ─── Reverse constraint helpers ───────────────────────────────────────────────
+// Return true if `nextWord` is a legal hard-mode follow-up after `word` produced `pattern`.
+function isHardModeLegal(word, pattern, nextWord) {
+  for (let i = 0; i < 5; i++) {
+    if (pattern[i] === 'green' && nextWord[i] !== word[i]) return false;
+  }
+  for (let i = 0; i < 5; i++) {
+    if (pattern[i] === 'yellow' && !nextWord.includes(word[i])) return false;
+  }
+  return true;
+}
+
+// Find words for a row in reverse mode: matches pattern AND nextWord is a valid
+// hard-mode continuation from this word's result.
+function findWordsForPatternReverse(desiredPattern, target, words, nextWord, limit) {
+  const results = [];
+  for (const w of words) {
+    let ok = true;
+    for (let i = 0; i < 5; i++) {
+      if ((desiredPattern[i] === 'green') !== (w[i] === target[i])) { ok = false; break; }
+    }
+    if (!ok) continue;
+    if (!matchesPattern(w, target, desiredPattern)) continue;
+    if (!isHardModeLegal(w, desiredPattern, nextWord)) continue;
+    results.push(w);
+    if (results.length >= limit) break;
+  }
+  return results;
+}
+
 // ─── Generate ────────────────────────────────────────────────────────────────
-let useRandom = true;
-let altLimit = Infinity;
+let useRandom   = true;
+let altLimit    = Infinity;
+let useReverse  = false;
+let forcedStart = '';   // locked row-0 word; empty = disabled
 
 function generateWords() {
   const target = elTargetInput.value;
@@ -209,31 +343,130 @@ function generateWords() {
   }
   elTargetValid.textContent = '';
 
-  const winRow = findWinRow();
+  // Validate forced start word if set
+  if (forcedStart && !BASE_WORDS_SET.has(forcedStart)) {
+    elStartValid.textContent = '⚠ Starting word not in word list';
+    elStartValid.style.color = '#f87';
+    return;
+  }
 
+  const winRow = findWinRow();
   elResults.innerHTML = `<div class="status-msg info"><span class="spinner"></span> Finding words…</div>`;
 
   setTimeout(() => {
     const words = getWordList(target);
     const found = [];
     let allFound = true;
-
     const lastRow = winRow === -1 ? 5 : winRow;
 
-    for (let r = 0; r <= lastRow; r++) {
-      const desired = grid[r];
-      const isWin = r === winRow;
-      const matches = isWin ? [target] : findWordsForPattern(desired, target, words, altLimit);
-      const word = matches.length
-        ? (useRandom ? matches[Math.floor(Math.random() * matches.length)] : matches[0])
-        : null;
-      const alternatives = matches;
+    if (forcedStart) {
+      // ── FORCED START + cumulative forward hard-mode ──────────────────────────
+      // Row 0 is locked to forcedStart. Its pattern is fully determined by
+      // computePattern(forcedStart, target) — we override the painted grid[0]
+      // so that the hard-mode constraints are always consistent with the painted
+      // patterns on rows 1+. Each subsequent row must satisfy the cumulative
+      // hard-mode constraints built from every prior chosen word's REAL scored pattern.
+      const chosen       = new Array(lastRow + 1).fill(null);
+      const alts         = new Array(lastRow + 1).fill(null).map(() => []);
+      const realPatterns = new Array(lastRow + 1).fill(null);
 
-      if (word) {
-        found.push({ row: r + 1, word, pattern: desired, isWin, alternatives });
-      } else {
-        found.push({ row: r + 1, word: null, pattern: desired, isWin: false, alternatives: [] });
-        allFound = false;
+      const row0RealPattern = computePattern(forcedStart, target);
+      chosen[0]       = forcedStart;
+      alts[0]         = [forcedStart];
+      realPatterns[0] = row0RealPattern;
+
+      for (let r = 1; r <= lastRow; r++) {
+        const isWin = r === winRow;
+        if (isWin) {
+          chosen[r]       = target;
+          alts[r]         = [target];
+          realPatterns[r] = ['green','green','green','green','green'];
+          continue;
+        }
+        // Cumulative hard-mode constraints from all prior real scored patterns
+        const priorGuesses = [];
+        for (let p = 0; p < r; p++) {
+          if (chosen[p] && realPatterns[p]) {
+            priorGuesses.push({ word: chosen[p], pattern: realPatterns[p] });
+          }
+        }
+        const constraints = buildHardModeConstraints(priorGuesses);
+        // The user has painted grid[r] to show what pattern they observed in the real game.
+        // We find words that: (a) produce that exact painted pattern against target,
+        // AND (b) satisfy all accumulated hard-mode constraints.
+        let matches = findWordsForPatternHard(grid[r], target, words, constraints, altLimit);
+        if (matches.length === 0) {
+          matches = findWordsForPattern(grid[r], target, words, altLimit);
+        }
+        const picked = matches.length
+          ? (useRandom ? matches[Math.floor(Math.random() * matches.length)] : matches[0])
+          : null;
+        chosen[r]       = picked;
+        alts[r]         = matches;
+        realPatterns[r] = picked ? computePattern(picked, target) : null;
+      }
+
+      for (let r = 0; r <= lastRow; r++) {
+        const isWin  = r === winRow;
+        const word   = chosen[r];
+        // Show row 0 with its real computed pattern, not the user-painted one
+        const displayPattern = r === 0 ? row0RealPattern : grid[r];
+        if (word) {
+          found.push({ row: r + 1, word, pattern: displayPattern, isWin, alternatives: alts[r], forcedRowMismatch: false });
+        } else {
+          found.push({ row: r + 1, word: null, pattern: displayPattern, isWin: false, alternatives: [], forcedRowMismatch: false });
+          allFound = false;
+        }
+      }
+
+    } else if (useReverse && lastRow > 0) {
+      // ── REVERSE mode: last→first, each row must allow next row as hard-mode follow-up ──
+      const chosen = new Array(lastRow + 1).fill(null);
+      const alts   = new Array(lastRow + 1).fill(null).map(() => []);
+
+      chosen[lastRow] = winRow !== -1 ? target : null;
+      alts[lastRow]   = winRow !== -1 ? [target] : [];
+
+      for (let r = lastRow - 1; r >= 0; r--) {
+        const nextWord = chosen[r + 1];
+        let matches;
+        if (!nextWord) {
+          matches = findWordsForPattern(grid[r], target, words, altLimit);
+        } else {
+          matches = findWordsForPatternReverse(grid[r], target, words, nextWord, altLimit);
+          if (matches.length === 0) matches = findWordsForPattern(grid[r], target, words, altLimit);
+        }
+        chosen[r] = matches.length
+          ? (useRandom ? matches[Math.floor(Math.random() * matches.length)] : matches[0])
+          : null;
+        alts[r] = matches;
+      }
+
+      for (let r = 0; r <= lastRow; r++) {
+        const isWin = r === winRow;
+        const word  = isWin ? target : chosen[r];
+        if (word) {
+          found.push({ row: r + 1, word, pattern: grid[r], isWin, alternatives: alts[r], forcedRowMismatch: false });
+        } else {
+          found.push({ row: r + 1, word: null, pattern: grid[r], isWin: false, alternatives: [], forcedRowMismatch: false });
+          allFound = false;
+        }
+      }
+
+    } else {
+      // ── NORMAL (forward, unconstrained) mode ────────────────────────────────
+      for (let r = 0; r <= lastRow; r++) {
+        const isWin   = r === winRow;
+        const matches = isWin ? [target] : findWordsForPattern(grid[r], target, words, altLimit);
+        const word    = matches.length
+          ? (useRandom ? matches[Math.floor(Math.random() * matches.length)] : matches[0])
+          : null;
+        if (word) {
+          found.push({ row: r + 1, word, pattern: grid[r], isWin, alternatives: matches, forcedRowMismatch: false });
+        } else {
+          found.push({ row: r + 1, word: null, pattern: grid[r], isWin: false, alternatives: [], forcedRowMismatch: false });
+          allFound = false;
+        }
       }
     }
 
@@ -246,21 +479,24 @@ function generateWords() {
       : '⚠ Some rows could not be matched — see below.';
     elResults.appendChild(statusEl);
 
-    found.forEach(({ row, word, pattern, isWin, alternatives }) => {
+    found.forEach(({ row, word, pattern, isWin, alternatives, forcedRowMismatch }) => {
       const div = document.createElement('div');
       div.className = 'result-row';
       if (isWin) div.classList.add('win');
+      if (forcedRowMismatch) div.classList.add('mismatch');
 
       const header = document.createElement('div');
       header.className = 'result-row-header';
 
       const wLabel = document.createElement('div');
       wLabel.className = 'result-word' + (isWin ? ' win' : !word ? ' notfound' : '');
-      wLabel.textContent = word ? `${row}. ${word}${isWin ? ' ✓' : ''}` : `${row}. ?`;
+      const forceTag = (forcedStart && row === 1) ? ' 🔒' : '';
+      wLabel.textContent = word ? `${row}. ${word}${isWin ? ' ✓' : ''}${forceTag}` : `${row}. ?`;
 
       const status = document.createElement('div');
       status.className = 'row-status ' + (word ? 'found' : 'notfound');
-      status.textContent = word ? (isWin ? 'WIN' : '✓ found') : '✗ none';
+      status.textContent = forcedRowMismatch ? '⚠ mismatch' : word ? (isWin ? 'WIN' : '✓ found') : '✗ none';
+      if (forcedRowMismatch) status.style.color = '#f87';
 
       header.appendChild(wLabel);
       header.appendChild(status);
@@ -276,7 +512,12 @@ function generateWords() {
       });
       div.appendChild(tilesDiv);
 
-      if (!word) {
+      if (forcedRowMismatch) {
+        const mismatchEl = document.createElement('div');
+        mismatchEl.className = 'result-note';
+        mismatchEl.textContent = `⚠ "${forcedStart}" doesn't match this row's painted pattern against the target`;
+        div.appendChild(mismatchEl);
+      } else if (!word) {
         const noteEl = document.createElement('div');
         noteEl.className = 'result-note';
         noteEl.textContent = 'No valid word found for this pattern';
@@ -422,6 +663,8 @@ elTargetValid     = document.getElementById('target-valid');
 elTargetInput     = document.getElementById('target-input');
 elPresetList      = document.getElementById('preset-list');
 elPresetNameInput = document.getElementById('preset-name-input');
+elStartInput      = document.getElementById('start-input');
+elStartValid      = document.getElementById('start-valid');
 
 initGrid();
 restoreSession();
@@ -429,6 +672,45 @@ renderGrid();
 setBrush('green');
 renderPresets();
 document.getElementById('random-toggle').addEventListener('change', function() { useRandom = this.checked; });
+document.getElementById('reverse-toggle').addEventListener('change', function() { useReverse = this.checked; });
+
+// Forced start word toggle
+document.getElementById('start-toggle').addEventListener('change', function() {
+  const box = document.getElementById('start-word-box');
+  box.style.display = this.checked ? 'block' : 'none';
+  if (!this.checked) {
+    elStartInput.value = '';
+    elStartValid.textContent = '';
+    forcedStart = '';
+    renderGrid();
+  } else {
+    elStartInput.focus();
+  }
+});
+
+// Forced start word input
+elStartInput.addEventListener('input', function() {
+  const val = this.value.toUpperCase().replace(/[^A-Z]/g, '');
+  this.value = val;
+  forcedStart = val.length === 5 ? val : '';
+  if (val.length === 0) {
+    elStartValid.textContent = '';
+  } else if (val.length < 5) {
+    elStartValid.style.color = '#f87';
+    elStartValid.textContent = `${5 - val.length} more letter${5 - val.length !== 1 ? 's' : ''} needed`;
+  } else {
+    if (BASE_WORDS_SET.has(val)) {
+      elStartValid.style.color = '#6aaa64';
+      elStartValid.textContent = '✓ Valid word';
+      renderGrid();
+    } else {
+      elStartValid.style.color = '#f87';
+      elStartValid.textContent = '⚠ Not in word list';
+      forcedStart = '';
+      renderGrid();
+    }
+  }
+});
 const elAltLimit = document.getElementById('alt-limit');
 elAltLimit.addEventListener('change', function() { altLimit = Math.max(1, +this.value || 1); this.value = altLimit; });
 document.getElementById('alt-unlimited').addEventListener('change', function() {
@@ -466,6 +748,7 @@ elTargetInput.addEventListener('input', function() {
   } else if (val.length === 5) {
     elTargetValid.style.color = '#6aaa64';
     elTargetValid.textContent = '✓ Valid length';
+    if (forcedStart) renderGrid(); // update forced row 0 pattern
   } else {
     elTargetValid.textContent = '';
   }

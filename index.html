@@ -27,6 +27,16 @@
     </div>
 
     <div>
+      <label class="toggle-row-label">
+        <input type="checkbox" id="start-toggle"> 🔒 Lock starting word <span style="font-size:0.6rem; color:#555; text-transform:none; letter-spacing:0; font-family:'Space Mono',monospace;">(enforces hard mode)</span>
+      </label>
+      <div id="start-word-box" style="display:none; margin-top:8px;">
+        <input type="text" id="start-input" maxlength="5" />
+        <div id="start-valid" style="font-size:0.65rem; height:14px; margin-top:4px;"></div>
+      </div>
+    </div>
+
+    <div>
       <label>Brush Color</label>
       <div class="brush-selector">
         <button class="brush-btn" id="brush-white" onclick="setBrush('white')">
@@ -95,6 +105,9 @@
       <label class="random-toggle-label">
         Max alternatives: <input type="number" id="alt-limit" value="20" min="1" max="200" disabled>
         <input type="checkbox" id="alt-unlimited" checked> All
+      </label>
+      <label class="random-toggle-label reverse-toggle-label" title="Works backwards: each row is constrained so the next row is a valid hard-mode follow-up. Independent from forced start word.">
+        <input type="checkbox" id="reverse-toggle"> 🔁 Reverse constraint (last→first hard mode)
       </label>
     </div>
     <button class="action-btn" onclick="generateWords()">Generate Words</button>
