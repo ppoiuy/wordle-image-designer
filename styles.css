@@ -543,3 +543,65 @@
   outline-offset: -2px;
 }
 .tile-locked:hover { transform: none !important; }
+
+/* ── Per-row lock inputs ─────────────────────────────────────────── */
+.lock-area {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-left: 8px;
+}
+
+.lock-input {
+  width: 68px !important;
+  font-size: 0.75rem !important;
+  letter-spacing: 0.12em !important;
+  padding: 4px 6px !important;
+  border-radius: 4px !important;
+  text-transform: uppercase;
+  color: #c9b458 !important;
+  -webkit-text-fill-color: #c9b458 !important;
+  border-color: #3a3a20 !important;
+  background: #111 !important;
+  transition: border-color 0.15s;
+}
+.lock-input::placeholder { color: #444; -webkit-text-fill-color: #444; }
+.lock-input:focus { border-color: #c9b458 !important; outline: none; }
+
+.lock-msg {
+  font-size: 0.55rem;
+  letter-spacing: 0.03em;
+  color: #888;
+  min-height: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 68px;
+}
+
+/* Locked row in grid */
+.grid-row.locked-row .tile-locked {
+  outline: 2px solid rgba(201,180,88,0.5);
+  outline-offset: -2px;
+}
+.row-label.locked { color: #c9b458; }
+
+/* Locked result in results panel */
+.result-row.locked-result { border-color: #4a4a20; }
+
+/* Reverse toggle */
+.reverse-toggle-label {
+  color: #c9b458 !important;
+  border: 1px solid #3a3a20;
+  background: #1a1a10;
+  border-radius: 6px;
+  padding: 5px 8px;
+  margin-top: 2px;
+}
+.reverse-toggle-label input[type="checkbox"] { accent-color: #c9b458; }
+
+/* Locked tile */
+.tile-locked {
+  cursor: not-allowed !important;
+}
+.tile-locked:hover { transform: none !important; }

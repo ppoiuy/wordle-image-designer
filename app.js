@@ -12,7 +12,8 @@ function getWordList(t) {
 }
 
 // ─── Cached DOM refs (set in init) ──────────────────────────────────────────
-let elGrid, elWinRowNote, elUndoBtn, elRedoBtn, elResults, elSequence, elTargetValid, elTargetInput, elPresetList, elPresetNameInput, elStartInput, elStartValid;
+let elGrid, elWinRowNote, elUndoBtn, elRedoBtn, elResults, elSequence,
+    elTargetValid, elTargetInput, elPresetList, elPresetNameInput;
 
 // ─── History ────────────────────────────────────────────────────────────────
 const MAX_HISTORY = 50;
@@ -51,77 +52,350 @@ function redo() {
 
 // ─── State ──────────────────────────────────────────────────────────────────
 let currentBrush = 'green';
-let grid = []; // 6 rows × 5 cols, each cell: 'white'|'yellow'|'green'
+let grid = [];
+
+// Per-row locked words: lockedWords[r] = 'CRANE' or '' if unlocked
+// lockedValid[r] = true/false/null (null = empty)
+const lockedWords = ['','','','','',''];
+const lockedValid = [null,null,null,null,null,null]; // null=empty, true=valid+consistent, false=invalid
 
 function initGrid() {
   grid = Array.from({length: 6}, () => ['white','white','white','white','white']);
 }
 
-// Return the index of the first all-green row (-1 if none)
 function findWinRow() {
   for (let r = 0; r < 6; r++) {
     const row = grid[r];
-    if (row[0]==='green'&&row[1]==='green'&&row[2]==='green'&&row[3]==='green'&&row[4]==='green') return r;
+    if (row.every(c => c === 'green')) return r;
   }
   return -1;
+}
+
+// ─── Wordle Logic ────────────────────────────────────────────────────────────
+function matchesPattern(guess, target, pattern) {
+  const targetUsed = [false,false,false,false,false];
+  const guessUsed  = [false,false,false,false,false];
+  for (let i = 0; i < 5; i++) {
+    if (guess[i] === target[i]) { targetUsed[i] = guessUsed[i] = true; }
+  }
+  for (let i = 0; i < 5; i++) {
+    if (guessUsed[i]) continue;
+    let found = false;
+    for (let j = 0; j < 5; j++) {
+      if (targetUsed[j]) continue;
+      if (guess[i] === target[j]) { targetUsed[j] = true; found = true; break; }
+    }
+    if (found !== (pattern[i] === 'yellow')) return false;
+  }
+  return true;
+}
+
+function computePattern(guess, target) {
+  const pattern    = ['white','white','white','white','white'];
+  const targetUsed = [false,false,false,false,false];
+  const guessUsed  = [false,false,false,false,false];
+  for (let i = 0; i < 5; i++) {
+    if (guess[i] === target[i]) { pattern[i] = 'green'; targetUsed[i] = guessUsed[i] = true; }
+  }
+  for (let i = 0; i < 5; i++) {
+    if (guessUsed[i]) continue;
+    for (let j = 0; j < 5; j++) {
+      if (targetUsed[j]) continue;
+      if (guess[i] === target[j]) { pattern[i] = 'yellow'; targetUsed[j] = true; break; }
+    }
+  }
+  return pattern;
+}
+
+function findWordsForPattern(desiredPattern, target, words, limit = 20) {
+  const results = [];
+  for (const w of words) {
+    let ok = true;
+    for (let i = 0; i < 5; i++) {
+      if ((desiredPattern[i] === 'green') !== (w[i] === target[i])) { ok = false; break; }
+    }
+    if (ok && matchesPattern(w, target, desiredPattern)) {
+      results.push(w);
+      if (results.length >= limit) break;
+    }
+  }
+  return results;
+}
+
+// ─── Hard-mode constraint helpers ────────────────────────────────────────────
+// Build cumulative constraints from a list of {word, pattern} pairs.
+// Uses REAL computed patterns (not painted grid).
+function buildHardModeConstraints(priorGuesses) {
+  const greenAt     = {};
+  const mustContain = new Set();
+  const mustExclude = new Set();
+  for (const { word, pattern } of priorGuesses) {
+    const hasHit = new Set();
+    for (let i = 0; i < 5; i++) {
+      if (pattern[i] === 'green' || pattern[i] === 'yellow') hasHit.add(word[i]);
+    }
+    for (let i = 0; i < 5; i++) {
+      if (pattern[i] === 'green') {
+        greenAt[i] = word[i];
+      } else if (pattern[i] === 'yellow') {
+        mustContain.add(word[i]);
+      } else if (!hasHit.has(word[i])) {
+        mustExclude.add(word[i]);
+      }
+    }
+  }
+  return { greenAt, mustContain, mustExclude };
+}
+
+function satisfiesHardMode(candidate, { greenAt, mustContain, mustExclude }) {
+  for (const [pos, letter] of Object.entries(greenAt)) {
+    if (candidate[+pos] !== letter) return false;
+  }
+  for (const letter of mustContain) {
+    if (!candidate.includes(letter)) return false;
+  }
+  for (const letter of mustExclude) {
+    if (candidate.includes(letter)) return false;
+  }
+  return true;
+}
+
+function findWordsForPatternHard(desiredPattern, target, words, constraints, limit) {
+  const results = [];
+  for (const w of words) {
+    let ok = true;
+    for (let i = 0; i < 5; i++) {
+      if ((desiredPattern[i] === 'green') !== (w[i] === target[i])) { ok = false; break; }
+    }
+    if (!ok) continue;
+    if (!matchesPattern(w, target, desiredPattern)) continue;
+    if (!satisfiesHardMode(w, constraints)) continue;
+    results.push(w);
+    if (results.length >= limit) break;
+  }
+  return results;
+}
+
+// ─── Reverse constraint helpers ───────────────────────────────────────────────
+function isHardModeLegal(word, pattern, nextWord) {
+  for (let i = 0; i < 5; i++) {
+    if (pattern[i] === 'green' && nextWord[i] !== word[i]) return false;
+  }
+  for (let i = 0; i < 5; i++) {
+    if (pattern[i] === 'yellow' && !nextWord.includes(word[i])) return false;
+  }
+  return true;
+}
+
+function findWordsForPatternReverse(desiredPattern, target, words, nextWord, limit) {
+  const results = [];
+  for (const w of words) {
+    let ok = true;
+    for (let i = 0; i < 5; i++) {
+      if ((desiredPattern[i] === 'green') !== (w[i] === target[i])) { ok = false; break; }
+    }
+    if (!ok) continue;
+    if (!matchesPattern(w, target, desiredPattern)) continue;
+    if (!isHardModeLegal(w, desiredPattern, nextWord)) continue;
+    results.push(w);
+    if (results.length >= limit) break;
+  }
+  return results;
+}
+
+// ─── Bidirectional lock validation ──────────────────────────────────────────
+// Check if a word at row `r` is consistent with all other locked rows.
+// Returns array of error strings (empty = valid).
+function checkLockConsistency(r, word, target) {
+  if (!target || target.length !== 5) return [];
+  const errors = [];
+  const myPattern = computePattern(word, target);
+
+  // Forward check: all locked rows BEFORE r must allow `word` as a hard-mode continuation
+  const priorLocked = [];
+  for (let p = 0; p < r; p++) {
+    if (lockedWords[p] && lockedValid[p] === true) {
+      priorLocked.push({ word: lockedWords[p], pattern: computePattern(lockedWords[p], target) });
+    }
+  }
+  if (priorLocked.length > 0) {
+    const constraints = buildHardModeConstraints(priorLocked);
+    if (!satisfiesHardMode(word, constraints)) {
+      errors.push('violates hard mode rules from earlier locked rows');
+    }
+  }
+
+  // Reverse check: all locked rows AFTER r must be valid hard-mode continuations from `word`
+  for (let q = r + 1; q < 6; q++) {
+    if (lockedWords[q] && lockedValid[q] === true) {
+      if (!isHardModeLegal(word, myPattern, lockedWords[q])) {
+        errors.push(`row ${q+1} lock (${lockedWords[q]}) couldn't follow this word in hard mode`);
+      }
+      // Also check that lockedWords[q] satisfies forward constraints including myPattern
+      const forwardGuesses = [...priorLocked, { word, pattern: myPattern }];
+      const fwdConstraints = buildHardModeConstraints(forwardGuesses);
+      if (!satisfiesHardMode(lockedWords[q], fwdConstraints)) {
+        errors.push(`row ${q+1} lock (${lockedWords[q]}) violates hard mode constraints including this word`);
+      }
+    }
+  }
+
+  return errors;
+}
+
+// Revalidate all locked rows against each other and update their status indicators
+function revalidateAllLocks() {
+  const target = elTargetInput ? elTargetInput.value : '';
+  for (let r = 0; r < 6; r++) {
+    const word = lockedWords[r];
+    const inp  = document.getElementById(`lock-input-${r}`);
+    const msg  = document.getElementById(`lock-msg-${r}`);
+    if (!inp || !msg) continue;
+    if (!word) {
+      lockedValid[r] = null;
+      msg.textContent = '';
+      inp.style.borderColor = '';
+      continue;
+    }
+    if (word.length < 5) {
+      lockedValid[r] = false;
+      continue; // partial — already handled in input listener
+    }
+    if (!BASE_WORDS_SET.has(word) && word !== target) {
+      lockedValid[r] = false;
+      msg.textContent = '⚠ not in word list';
+      msg.style.color = '#f87';
+      inp.style.borderColor = '#f87';
+      continue;
+    }
+    if (!target || target.length !== 5) {
+      lockedValid[r] = true; // can't check without target
+      msg.textContent = '✓';
+      msg.style.color = '#6aaa64';
+      inp.style.borderColor = '#6aaa64';
+      continue;
+    }
+    const errs = checkLockConsistency(r, word, target);
+    if (errs.length === 0) {
+      lockedValid[r] = true;
+      msg.textContent = '✓';
+      msg.style.color = '#6aaa64';
+      inp.style.borderColor = '#6aaa64';
+    } else {
+      lockedValid[r] = false;
+      msg.textContent = '⚠ ' + errs[0];
+      msg.style.color = '#f87';
+      inp.style.borderColor = '#f87';
+    }
+  }
 }
 
 // ─── Render Grid ────────────────────────────────────────────────────────────
 function renderGrid() {
   elGrid.innerHTML = '';
   const winRow = findWinRow();
-
-  // When forced start is active, compute row 0's real pattern to display
-  const forcedRow0Pattern = (forcedStart && elTargetInput && elTargetInput.value.length === 5)
-    ? computePattern(forcedStart, elTargetInput.value)
-    : null;
+  const target = elTargetInput ? elTargetInput.value : '';
 
   for (let r = 0; r < 6; r++) {
-    const isWin        = winRow === r;
-    const isAfterWin   = winRow !== -1 && r > winRow;
-    const isForcedRow  = forcedStart && r === 0;
+    const isWin      = winRow === r;
+    const isAfterWin = winRow !== -1 && r > winRow;
+    const locked     = lockedWords[r].length === 5 && lockedValid[r] === true;
+    const lockedPattern = (locked && target.length === 5)
+      ? computePattern(lockedWords[r], target) : null;
 
     const rowDiv = document.createElement('div');
     rowDiv.className = 'grid-row';
     if (isAfterWin) rowDiv.classList.add('after-win');
-    if (isForcedRow) rowDiv.classList.add('forced-row');
+    if (locked) rowDiv.classList.add('locked-row');
 
+    // Row number label
     const lbl = document.createElement('div');
-    lbl.className = 'row-label';
+    lbl.className = 'row-label' + (isWin ? ' win' : '') + (locked ? ' locked' : '');
     lbl.textContent = r + 1;
-    if (isWin) lbl.classList.add('win');
-    if (isForcedRow) lbl.classList.add('forced');
     rowDiv.appendChild(lbl);
 
+    // Tiles
     for (let c = 0; c < 5; c++) {
       const tile = document.createElement('div');
       let color;
-      if (isAfterWin) {
-        color = 'absent';
-      } else if (isForcedRow && forcedRow0Pattern) {
-        color = forcedRow0Pattern[c];
-      } else {
-        color = grid[r][c];
-      }
+      if (isAfterWin)           color = 'absent';
+      else if (lockedPattern)   color = lockedPattern[c];
+      else                      color = grid[r][c];
+
       tile.className = `tile color-${color}`;
       tile.dataset.r = r;
       tile.dataset.c = c;
 
-      if (isAfterWin) {
-        tile.title = 'This row is after the winning guess — unused';
-      } else if (isForcedRow) {
-        tile.title = `Locked to "${forcedStart}" — pattern auto-computed`;
+      if (isAfterWin || locked) {
         tile.classList.add('tile-locked');
+        tile.title = locked ? `Locked to "${lockedWords[r]}"` : 'After win row';
       } else {
         tile.addEventListener('click', onTileClick);
         tile.addEventListener('mouseenter', onTileEnter);
-        if (isWin) tile.title = 'Win row — all green = target word guessed correctly';
       }
       rowDiv.appendChild(tile);
     }
 
+    // Lock input area (to the right of tiles)
+    const lockArea = document.createElement('div');
+    lockArea.className = 'lock-area';
+
+    const lockInp = document.createElement('input');
+    lockInp.type = 'text';
+    lockInp.id = `lock-input-${r}`;
+    lockInp.className = 'lock-input';
+    lockInp.maxLength = 5;
+    lockInp.placeholder = 'lock…';
+    lockInp.value = lockedWords[r];
+    lockInp.title = 'Lock this row to a specific word (enforces hard mode)';
+    if (isAfterWin) { lockInp.disabled = true; lockInp.style.opacity = '0.25'; }
+
+    lockInp.addEventListener('input', function() {
+      const val = this.value.toUpperCase().replace(/[^A-Z]/g, '');
+      this.value = val;
+      lockedWords[r] = val;
+
+      const msg = document.getElementById(`lock-msg-${r}`);
+      if (val.length === 0) {
+        lockedValid[r] = null;
+        msg.textContent = '';
+        this.style.borderColor = '';
+        renderGrid(); // re-render to unlock tiles
+        revalidateAllLocks();
+      } else if (val.length < 5) {
+        lockedValid[r] = false;
+        msg.textContent = `${5 - val.length} more`;
+        msg.style.color = '#888';
+        this.style.borderColor = '#555';
+      } else {
+        // 5 letters — validate
+        const tgt = elTargetInput.value;
+        if (!BASE_WORDS_SET.has(val) && val !== tgt) {
+          lockedValid[r] = false;
+          msg.textContent = '⚠ not in list';
+          msg.style.color = '#f87';
+          this.style.borderColor = '#f87';
+        } else {
+          lockedValid[r] = true; // tentative, revalidate will correct
+          revalidateAllLocks();
+          renderGrid();
+        }
+      }
+    });
+
+    const lockMsg = document.createElement('div');
+    lockMsg.id = `lock-msg-${r}`;
+    lockMsg.className = 'lock-msg';
+
+    lockArea.appendChild(lockInp);
+    lockArea.appendChild(lockMsg);
+    rowDiv.appendChild(lockArea);
+
     elGrid.appendChild(rowDiv);
   }
+
+  // Restore validation messages after re-render
+  revalidateAllLocks();
 
   if (winRow === -1) {
     elWinRowNote.textContent = 'Paint a row all green to mark the winning guess';
@@ -134,8 +408,10 @@ function renderGrid() {
 }
 
 function onTileClick(e) {
+  const r = +e.currentTarget.dataset.r;
+  if (lockedWords[r].length === 5 && lockedValid[r] === true) return;
   pushHistory();
-  grid[+e.currentTarget.dataset.r][+e.currentTarget.dataset.c] = currentBrush;
+  grid[r][+e.currentTarget.dataset.c] = currentBrush;
   renderGrid();
 }
 
@@ -159,245 +435,95 @@ function clearGrid() {
 
 function swapColors(a, b) {
   pushHistory();
-  for (let r = 0; r < 6; r++) {
+  for (let r = 0; r < 6; r++)
     for (let c = 0; c < 5; c++) {
       if (grid[r][c] === a) grid[r][c] = b;
       else if (grid[r][c] === b) grid[r][c] = a;
     }
-  }
   renderGrid();
 }
 
 function flipGrid(direction) {
   pushHistory();
-  if (direction === 'horizontal') {
-    for (let r = 0; r < 6; r++) grid[r].reverse();
-  } else {
-    grid.reverse();
-  }
+  if (direction === 'horizontal') for (let r = 0; r < 6; r++) grid[r].reverse();
+  else grid.reverse();
   renderGrid();
 }
 
-// ─── Wordle Logic ────────────────────────────────────────────────────────────
-// Returns true if guess produces exactly pattern against target
-function matchesPattern(guess, target, pattern) {
-  const targetUsed = [false,false,false,false,false];
-  const guessUsed  = [false,false,false,false,false];
-  for (let i = 0; i < 5; i++) {
-    if (guess[i] === target[i]) { targetUsed[i] = guessUsed[i] = true; }
-  }
-  for (let i = 0; i < 5; i++) {
-    if (guessUsed[i]) continue;
-    let found = false;
-    for (let j = 0; j < 5; j++) {
-      if (targetUsed[j]) continue;
-      if (guess[i] === target[j]) { targetUsed[j] = true; found = true; break; }
-    }
-    if (found !== (pattern[i] === 'yellow')) return false;
-  }
-  return true;
-}
-
-// Compute what pattern guess produces against target (returns array of 'green'|'yellow'|'white')
-function computePattern(guess, target) {
-  const pattern     = ['white','white','white','white','white'];
-  const targetUsed  = [false,false,false,false,false];
-  const guessUsed   = [false,false,false,false,false];
-  for (let i = 0; i < 5; i++) {
-    if (guess[i] === target[i]) {
-      pattern[i] = 'green';
-      targetUsed[i] = guessUsed[i] = true;
-    }
-  }
-  for (let i = 0; i < 5; i++) {
-    if (guessUsed[i]) continue;
-    for (let j = 0; j < 5; j++) {
-      if (targetUsed[j]) continue;
-      if (guess[i] === target[j]) {
-        pattern[i] = 'yellow';
-        targetUsed[j] = true;
-        break;
-      }
-    }
-  }
-  return pattern;
-}
-
-function findWordsForPattern(desiredPattern, target, words, limit = 20) {
-  const results = [];
-  for (const w of words) {
-    let ok = true;
-    for (let i = 0; i < 5; i++) {
-      if ((desiredPattern[i] === 'green') !== (w[i] === target[i])) { ok = false; break; }
-    }
-    if (ok && matchesPattern(w, target, desiredPattern)) {
-      results.push(w);
-      if (results.length >= limit) break;
-    }
-  }
-  return results;
-}
-
-// ─── Hard-mode forward constraint helpers ────────────────────────────────────
-
-// Build cumulative hard-mode constraints from a list of prior {word, pattern} pairs.
-// greenAt:     position -> letter (must appear at that exact position)
-// mustContain: letters that must appear somewhere (from yellows)
-// mustExclude: letters that must NOT appear at all (scored white with no green/yellow hit)
-function buildHardModeConstraints(priorGuesses) {
-  const greenAt     = {};
-  const mustContain = new Set();
-  const mustExclude = new Set();
-  for (const { word, pattern } of priorGuesses) {
-    // First pass: find letters with at least one green or yellow hit
-    const hasHit = new Set();
-    for (let i = 0; i < 5; i++) {
-      if (pattern[i] === 'green' || pattern[i] === 'yellow') hasHit.add(word[i]);
-    }
-    for (let i = 0; i < 5; i++) {
-      if (pattern[i] === 'green') {
-        greenAt[i] = word[i];
-      } else if (pattern[i] === 'yellow') {
-        mustContain.add(word[i]);
-      } else if (pattern[i] === 'white' && !hasHit.has(word[i])) {
-        // Truly absent — not present in target at all
-        mustExclude.add(word[i]);
-      }
-    }
-  }
-  return { greenAt, mustContain, mustExclude };
-}
-
-function satisfiesHardMode(candidate, { greenAt, mustContain, mustExclude }) {
-  for (const [pos, letter] of Object.entries(greenAt)) {
-    if (candidate[+pos] !== letter) return false;
-  }
-  for (const letter of mustContain) {
-    if (!candidate.includes(letter)) return false;
-  }
-  for (const letter of mustExclude) {
-    if (candidate.includes(letter)) return false;
-  }
-  return true;
-}
-
-// Find words matching desiredPattern against target AND satisfying cumulative hard-mode constraints
-function findWordsForPatternHard(desiredPattern, target, words, constraints, limit) {
-  const results = [];
-  for (const w of words) {
-    let ok = true;
-    for (let i = 0; i < 5; i++) {
-      if ((desiredPattern[i] === 'green') !== (w[i] === target[i])) { ok = false; break; }
-    }
-    if (!ok) continue;
-    if (!matchesPattern(w, target, desiredPattern)) continue;
-    if (!satisfiesHardMode(w, constraints)) continue;
-    results.push(w);
-    if (results.length >= limit) break;
-  }
-  return results;
-}
-
-// ─── Reverse constraint helpers ───────────────────────────────────────────────
-// Return true if `nextWord` is a legal hard-mode follow-up after `word` produced `pattern`.
-function isHardModeLegal(word, pattern, nextWord) {
-  for (let i = 0; i < 5; i++) {
-    if (pattern[i] === 'green' && nextWord[i] !== word[i]) return false;
-  }
-  for (let i = 0; i < 5; i++) {
-    if (pattern[i] === 'yellow' && !nextWord.includes(word[i])) return false;
-  }
-  return true;
-}
-
-// Find words for a row in reverse mode: matches pattern AND nextWord is a valid
-// hard-mode continuation from this word's result.
-function findWordsForPatternReverse(desiredPattern, target, words, nextWord, limit) {
-  const results = [];
-  for (const w of words) {
-    let ok = true;
-    for (let i = 0; i < 5; i++) {
-      if ((desiredPattern[i] === 'green') !== (w[i] === target[i])) { ok = false; break; }
-    }
-    if (!ok) continue;
-    if (!matchesPattern(w, target, desiredPattern)) continue;
-    if (!isHardModeLegal(w, desiredPattern, nextWord)) continue;
-    results.push(w);
-    if (results.length >= limit) break;
-  }
-  return results;
-}
-
 // ─── Generate ────────────────────────────────────────────────────────────────
-let useRandom   = true;
-let altLimit    = Infinity;
-let useReverse  = false;
-let forcedStart = '';   // locked row-0 word; empty = disabled
+let useRandom  = true;
+let altLimit   = Infinity;
+let useReverse = false;
 
 function generateWords() {
   const target = elTargetInput.value;
-
   if (target.length !== 5) {
     elTargetValid.textContent = '⚠ Target must be exactly 5 letters';
     return;
   }
   elTargetValid.textContent = '';
 
-  // Validate forced start word if set
-  if (forcedStart && !BASE_WORDS_SET.has(forcedStart)) {
-    elStartValid.textContent = '⚠ Starting word not in word list';
-    elStartValid.style.color = '#f87';
-    return;
-  }
+  const winRow  = findWinRow();
+  const lastRow = winRow === -1 ? 5 : winRow;
 
-  const winRow = findWinRow();
   elResults.innerHTML = `<div class="status-msg info"><span class="spinner"></span> Finding words…</div>`;
 
   setTimeout(() => {
-    const words = getWordList(target);
-    const found = [];
-    let allFound = true;
-    const lastRow = winRow === -1 ? 5 : winRow;
+    const words    = getWordList(target);
+    const found    = [];
+    let   allFound = true;
 
-    if (forcedStart) {
-      // ── FORCED START + cumulative forward hard-mode ──────────────────────────
-      // Row 0 is locked to forcedStart. Its pattern is fully determined by
-      // computePattern(forcedStart, target) — we override the painted grid[0]
-      // so that the hard-mode constraints are always consistent with the painted
-      // patterns on rows 1+. Each subsequent row must satisfy the cumulative
-      // hard-mode constraints built from every prior chosen word's REAL scored pattern.
-      const chosen       = new Array(lastRow + 1).fill(null);
-      const alts         = new Array(lastRow + 1).fill(null).map(() => []);
-      const realPatterns = new Array(lastRow + 1).fill(null);
+    // chosen[r] = final word for row r; realPatterns[r] = computePattern of chosen[r] vs target
+    const chosen       = new Array(lastRow + 1).fill(null);
+    const alts         = new Array(lastRow + 1).fill(null).map(() => []);
+    const realPatterns = new Array(lastRow + 1).fill(null);
 
-      const row0RealPattern = computePattern(forcedStart, target);
-      chosen[0]       = forcedStart;
-      alts[0]         = [forcedStart];
-      realPatterns[0] = row0RealPattern;
+    // Seed locked rows first
+    for (let r = 0; r <= lastRow; r++) {
+      if (r === winRow) {
+        chosen[r]       = target;
+        alts[r]         = [target];
+        realPatterns[r] = ['green','green','green','green','green'];
+      } else if (lockedWords[r] && lockedValid[r] === true) {
+        chosen[r]       = lockedWords[r];
+        alts[r]         = [lockedWords[r]];
+        realPatterns[r] = computePattern(lockedWords[r], target);
+      }
+    }
 
-      for (let r = 1; r <= lastRow; r++) {
-        const isWin = r === winRow;
-        if (isWin) {
-          chosen[r]       = target;
-          alts[r]         = [target];
-          realPatterns[r] = ['green','green','green','green','green'];
-          continue;
-        }
-        // Cumulative hard-mode constraints from all prior real scored patterns
+    const anyLocked = chosen.some(w => w !== null);
+
+    if (anyLocked || !useReverse) {
+      // ── FORWARD mode (with or without locked rows) ───────────────────────────
+      // Walk forward; for each unlocked row build cumulative constraints from
+      // all prior rows (locked or already chosen).
+      for (let r = 0; r <= lastRow; r++) {
+        if (chosen[r] !== null) continue; // already seeded
         const priorGuesses = [];
         for (let p = 0; p < r; p++) {
           if (chosen[p] && realPatterns[p]) {
             priorGuesses.push({ word: chosen[p], pattern: realPatterns[p] });
           }
         }
-        const constraints = buildHardModeConstraints(priorGuesses);
-        // The user has painted grid[r] to show what pattern they observed in the real game.
-        // We find words that: (a) produce that exact painted pattern against target,
-        // AND (b) satisfy all accumulated hard-mode constraints.
-        let matches = findWordsForPatternHard(grid[r], target, words, constraints, altLimit);
-        if (matches.length === 0) {
+        let matches;
+        if (priorGuesses.length > 0) {
+          const constraints = buildHardModeConstraints(priorGuesses);
+          matches = findWordsForPatternHard(grid[r], target, words, constraints, altLimit);
+          if (matches.length === 0) matches = findWordsForPattern(grid[r], target, words, altLimit);
+        } else {
           matches = findWordsForPattern(grid[r], target, words, altLimit);
         }
+
+        // Also apply reverse constraint if next row is locked
+        let nextLocked = null;
+        for (let q = r + 1; q <= lastRow; q++) {
+          if (chosen[q]) { nextLocked = chosen[q]; break; }
+        }
+        if (nextLocked && matches.length > 0) {
+          const revFiltered = matches.filter(w => isHardModeLegal(w, computePattern(w, target), nextLocked));
+          if (revFiltered.length > 0) matches = revFiltered;
+        }
+
         const picked = matches.length
           ? (useRandom ? matches[Math.floor(Math.random() * matches.length)] : matches[0])
           : null;
@@ -406,28 +532,10 @@ function generateWords() {
         realPatterns[r] = picked ? computePattern(picked, target) : null;
       }
 
-      for (let r = 0; r <= lastRow; r++) {
-        const isWin  = r === winRow;
-        const word   = chosen[r];
-        // Show row 0 with its real computed pattern, not the user-painted one
-        const displayPattern = r === 0 ? row0RealPattern : grid[r];
-        if (word) {
-          found.push({ row: r + 1, word, pattern: displayPattern, isWin, alternatives: alts[r], forcedRowMismatch: false });
-        } else {
-          found.push({ row: r + 1, word: null, pattern: displayPattern, isWin: false, alternatives: [], forcedRowMismatch: false });
-          allFound = false;
-        }
-      }
-
-    } else if (useReverse && lastRow > 0) {
-      // ── REVERSE mode: last→first, each row must allow next row as hard-mode follow-up ──
-      const chosen = new Array(lastRow + 1).fill(null);
-      const alts   = new Array(lastRow + 1).fill(null).map(() => []);
-
-      chosen[lastRow] = winRow !== -1 ? target : null;
-      alts[lastRow]   = winRow !== -1 ? [target] : [];
-
+    } else {
+      // ── REVERSE mode (no locked rows) ────────────────────────────────────────
       for (let r = lastRow - 1; r >= 0; r--) {
+        if (chosen[r] !== null) continue;
         const nextWord = chosen[r + 1];
         let matches;
         if (!nextWord) {
@@ -436,37 +544,27 @@ function generateWords() {
           matches = findWordsForPatternReverse(grid[r], target, words, nextWord, altLimit);
           if (matches.length === 0) matches = findWordsForPattern(grid[r], target, words, altLimit);
         }
-        chosen[r] = matches.length
+        const picked = matches.length
           ? (useRandom ? matches[Math.floor(Math.random() * matches.length)] : matches[0])
           : null;
-        alts[r] = matches;
+        chosen[r]       = picked;
+        alts[r]         = matches;
+        realPatterns[r] = picked ? computePattern(picked, target) : null;
       }
+    }
 
-      for (let r = 0; r <= lastRow; r++) {
-        const isWin = r === winRow;
-        const word  = isWin ? target : chosen[r];
-        if (word) {
-          found.push({ row: r + 1, word, pattern: grid[r], isWin, alternatives: alts[r], forcedRowMismatch: false });
-        } else {
-          found.push({ row: r + 1, word: null, pattern: grid[r], isWin: false, alternatives: [], forcedRowMismatch: false });
-          allFound = false;
-        }
-      }
-
-    } else {
-      // ── NORMAL (forward, unconstrained) mode ────────────────────────────────
-      for (let r = 0; r <= lastRow; r++) {
-        const isWin   = r === winRow;
-        const matches = isWin ? [target] : findWordsForPattern(grid[r], target, words, altLimit);
-        const word    = matches.length
-          ? (useRandom ? matches[Math.floor(Math.random() * matches.length)] : matches[0])
-          : null;
-        if (word) {
-          found.push({ row: r + 1, word, pattern: grid[r], isWin, alternatives: matches, forcedRowMismatch: false });
-        } else {
-          found.push({ row: r + 1, word: null, pattern: grid[r], isWin: false, alternatives: [], forcedRowMismatch: false });
-          allFound = false;
-        }
+    // Build results display
+    for (let r = 0; r <= lastRow; r++) {
+      const isWin    = r === winRow;
+      const word     = chosen[r];
+      const isLocked = !!(lockedWords[r] && lockedValid[r] === true);
+      // Display pattern: for locked rows use real computed pattern; otherwise use painted grid
+      const displayPattern = (isLocked || isWin) ? realPatterns[r] : grid[r];
+      if (word) {
+        found.push({ row: r + 1, word, pattern: displayPattern, isWin, isLocked, alternatives: alts[r] });
+      } else {
+        found.push({ row: r + 1, word: null, pattern: displayPattern, isWin: false, isLocked, alternatives: [] });
+        allFound = false;
       }
     }
 
@@ -479,24 +577,21 @@ function generateWords() {
       : '⚠ Some rows could not be matched — see below.';
     elResults.appendChild(statusEl);
 
-    found.forEach(({ row, word, pattern, isWin, alternatives, forcedRowMismatch }) => {
+    found.forEach(({ row, word, pattern, isWin, isLocked, alternatives }) => {
       const div = document.createElement('div');
-      div.className = 'result-row';
-      if (isWin) div.classList.add('win');
-      if (forcedRowMismatch) div.classList.add('mismatch');
+      div.className = 'result-row' + (isWin ? ' win' : '') + (isLocked ? ' locked-result' : '');
 
       const header = document.createElement('div');
       header.className = 'result-row-header';
 
       const wLabel = document.createElement('div');
       wLabel.className = 'result-word' + (isWin ? ' win' : !word ? ' notfound' : '');
-      const forceTag = (forcedStart && row === 1) ? ' 🔒' : '';
-      wLabel.textContent = word ? `${row}. ${word}${isWin ? ' ✓' : ''}${forceTag}` : `${row}. ?`;
+      const tag = isLocked ? ' 🔒' : isWin ? ' ✓' : '';
+      wLabel.textContent = word ? `${row}. ${word}${tag}` : `${row}. ?`;
 
       const status = document.createElement('div');
       status.className = 'row-status ' + (word ? 'found' : 'notfound');
-      status.textContent = forcedRowMismatch ? '⚠ mismatch' : word ? (isWin ? 'WIN' : '✓ found') : '✗ none';
-      if (forcedRowMismatch) status.style.color = '#f87';
+      status.textContent = word ? (isWin ? 'WIN' : isLocked ? 'LOCKED' : '✓ found') : '✗ none';
 
       header.appendChild(wLabel);
       header.appendChild(status);
@@ -512,17 +607,12 @@ function generateWords() {
       });
       div.appendChild(tilesDiv);
 
-      if (forcedRowMismatch) {
-        const mismatchEl = document.createElement('div');
-        mismatchEl.className = 'result-note';
-        mismatchEl.textContent = `⚠ "${forcedStart}" doesn't match this row's painted pattern against the target`;
-        div.appendChild(mismatchEl);
-      } else if (!word) {
+      if (!word) {
         const noteEl = document.createElement('div');
         noteEl.className = 'result-note';
         noteEl.textContent = 'No valid word found for this pattern';
         div.appendChild(noteEl);
-      } else if (alternatives.length) {
+      } else if (!isLocked && alternatives.length > 1) {
         const altsDiv = document.createElement('div');
         altsDiv.className = 'result-alts';
         alternatives.forEach(alt => {
@@ -537,7 +627,6 @@ function generateWords() {
       elResults.appendChild(div);
     });
 
-    // Play order panel
     elSequence.innerHTML = '';
     if (allFound) {
       found.forEach(({ word }) => {
@@ -554,7 +643,6 @@ function generateWords() {
 
 // ─── Session persistence ──────────────────────────────────────────────────────
 const SESSION_KEY = 'wordle-designer-session';
-
 let _saveTimer = null;
 function saveSession() {
   clearTimeout(_saveTimer);
@@ -578,8 +666,7 @@ function restoreSession() {
 const PRESETS_KEY = 'wordle-designer-presets';
 
 function loadPresetsFromStorage() {
-  try { return JSON.parse(localStorage.getItem(PRESETS_KEY)) || {}; }
-  catch { return {}; }
+  try { return JSON.parse(localStorage.getItem(PRESETS_KEY)) || {}; } catch { return {}; }
 }
 
 function savePreset() {
@@ -623,7 +710,7 @@ function renderPresets() {
       row.forEach(color => {
         const cell = document.createElement('div');
         cell.className = 'preset-mini-cell';
-        cell.style.background = COLOR_HEX[color];
+        cell.style.background = COLOR_HEX[color] || '#3a3a3c';
         miniGrid.appendChild(cell);
       });
     });
@@ -663,54 +750,16 @@ elTargetValid     = document.getElementById('target-valid');
 elTargetInput     = document.getElementById('target-input');
 elPresetList      = document.getElementById('preset-list');
 elPresetNameInput = document.getElementById('preset-name-input');
-elStartInput      = document.getElementById('start-input');
-elStartValid      = document.getElementById('start-valid');
 
 initGrid();
 restoreSession();
 renderGrid();
 setBrush('green');
 renderPresets();
+
 document.getElementById('random-toggle').addEventListener('change', function() { useRandom = this.checked; });
 document.getElementById('reverse-toggle').addEventListener('change', function() { useReverse = this.checked; });
 
-// Forced start word toggle
-document.getElementById('start-toggle').addEventListener('change', function() {
-  const box = document.getElementById('start-word-box');
-  box.style.display = this.checked ? 'block' : 'none';
-  if (!this.checked) {
-    elStartInput.value = '';
-    elStartValid.textContent = '';
-    forcedStart = '';
-    renderGrid();
-  } else {
-    elStartInput.focus();
-  }
-});
-
-// Forced start word input
-elStartInput.addEventListener('input', function() {
-  const val = this.value.toUpperCase().replace(/[^A-Z]/g, '');
-  this.value = val;
-  forcedStart = val.length === 5 ? val : '';
-  if (val.length === 0) {
-    elStartValid.textContent = '';
-  } else if (val.length < 5) {
-    elStartValid.style.color = '#f87';
-    elStartValid.textContent = `${5 - val.length} more letter${5 - val.length !== 1 ? 's' : ''} needed`;
-  } else {
-    if (BASE_WORDS_SET.has(val)) {
-      elStartValid.style.color = '#6aaa64';
-      elStartValid.textContent = '✓ Valid word';
-      renderGrid();
-    } else {
-      elStartValid.style.color = '#f87';
-      elStartValid.textContent = '⚠ Not in word list';
-      forcedStart = '';
-      renderGrid();
-    }
-  }
-});
 const elAltLimit = document.getElementById('alt-limit');
 elAltLimit.addEventListener('change', function() { altLimit = Math.max(1, +this.value || 1); this.value = altLimit; });
 document.getElementById('alt-unlimited').addEventListener('change', function() {
@@ -723,11 +772,9 @@ document.getElementById('wordle-today-link').href = `https://www.google.com/sear
 
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-    e.preventDefault();
-    undo();
+    e.preventDefault(); undo();
   } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
-    e.preventDefault();
-    redo();
+    e.preventDefault(); redo();
   } else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.target.tagName !== 'INPUT') {
     switch (e.key) {
       case '1': case 'q': case 'Q': setBrush('white');  break;
@@ -737,7 +784,6 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Validate target input live
 elTargetInput.addEventListener('input', function() {
   const val = this.value.toUpperCase().replace(/[^A-Z]/g, '');
   this.value = val;
@@ -748,7 +794,8 @@ elTargetInput.addEventListener('input', function() {
   } else if (val.length === 5) {
     elTargetValid.style.color = '#6aaa64';
     elTargetValid.textContent = '✓ Valid length';
-    if (forcedStart) renderGrid(); // update forced row 0 pattern
+    revalidateAllLocks();
+    renderGrid();
   } else {
     elTargetValid.textContent = '';
   }

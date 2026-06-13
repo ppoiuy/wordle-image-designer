@@ -27,16 +27,6 @@
     </div>
 
     <div>
-      <label class="toggle-row-label">
-        <input type="checkbox" id="start-toggle"> 🔒 Lock starting word <span style="font-size:0.6rem; color:#555; text-transform:none; letter-spacing:0; font-family:'Space Mono',monospace;">(enforces hard mode)</span>
-      </label>
-      <div id="start-word-box" style="display:none; margin-top:8px;">
-        <input type="text" id="start-input" maxlength="5" />
-        <div id="start-valid" style="font-size:0.65rem; height:14px; margin-top:4px;"></div>
-      </div>
-    </div>
-
-    <div>
       <label>Brush Color</label>
       <div class="brush-selector">
         <button class="brush-btn" id="brush-white" onclick="setBrush('white')">
@@ -57,8 +47,9 @@
     <div class="info-box">
       1. Enter the answer word<br>
       2. Paint the color pattern you want<br>
-      3. A fully green row marks the winning guess — rows after it are ignored<br>
-      4. Click <strong>Generate Words</strong> to find valid guesses<br><br>
+      3. Optionally type a word in any row's 🔒 field to lock it — locked rows auto-compute their pattern and enforce hard mode on all other rows<br>
+      4. A fully green row marks the winning guess — rows after it are ignored<br>
+      5. Click <strong>Generate Words</strong> to find valid guesses<br><br>
       🟩 right letter, right spot<br>
       🟨 right letter, wrong spot<br>
       ⬜ letter not in the word
