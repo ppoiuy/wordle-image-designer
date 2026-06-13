@@ -453,7 +453,6 @@ function flipGrid(direction) {
 // ─── Generate ────────────────────────────────────────────────────────────────
 let useRandom  = true;
 let altLimit   = Infinity;
-let useReverse = false;
 
 function generateWords() {
   const target = elTargetInput.value;
@@ -473,87 +472,64 @@ function generateWords() {
     const found    = [];
     let   allFound = true;
 
-    // chosen[r] = final word for row r; realPatterns[r] = computePattern of chosen[r] vs target
+    // chosen[r] = final picked word; realPatterns[r] = computePattern of chosen[r] vs target
     const chosen       = new Array(lastRow + 1).fill(null);
-    const alts         = new Array(lastRow + 1).fill(null).map(() => []);
+    const rowAlts      = new Array(lastRow + 1).fill(null).map(() => []);
     const realPatterns = new Array(lastRow + 1).fill(null);
 
-    // Seed locked rows first
+    // Seed explicitly locked rows and win row first
     for (let r = 0; r <= lastRow; r++) {
       if (r === winRow) {
         chosen[r]       = target;
-        alts[r]         = [target];
         realPatterns[r] = ['green','green','green','green','green'];
       } else if (lockedWords[r] && lockedValid[r] === true) {
         chosen[r]       = lockedWords[r];
-        alts[r]         = [lockedWords[r]];
         realPatterns[r] = computePattern(lockedWords[r], target);
       }
     }
 
-    const anyLocked = chosen.some(w => w !== null);
+    // For each unlocked row, compute candidates using ONLY explicitly locked rows as constraints.
+    // The randomly picked word for sequencing does NOT narrow the alternatives list.
+    for (let r = 0; r <= lastRow; r++) {
+      if (chosen[r] !== null) continue;
 
-    if (anyLocked || !useReverse) {
-      // ── FORWARD mode (with or without locked rows) ───────────────────────────
-      // Walk forward; for each unlocked row build cumulative constraints from
-      // all prior rows (locked or already chosen).
-      for (let r = 0; r <= lastRow; r++) {
-        if (chosen[r] !== null) continue; // already seeded
-        const priorGuesses = [];
-        for (let p = 0; p < r; p++) {
-          if (chosen[p] && realPatterns[p]) {
-            priorGuesses.push({ word: chosen[p], pattern: realPatterns[p] });
-          }
+      // Constraints from locked prior rows only (not random picks)
+      const lockedPrior = [];
+      for (let p = 0; p < r; p++) {
+        if (lockedWords[p] && lockedValid[p] === true) {
+          lockedPrior.push({ word: lockedWords[p], pattern: computePattern(lockedWords[p], target) });
         }
-        let matches;
-        if (priorGuesses.length > 0) {
-          const constraints = buildHardModeConstraints(priorGuesses);
-          matches = findWordsForPatternHard(grid[r], target, words, constraints, altLimit);
-          if (matches.length === 0) matches = findWordsForPattern(grid[r], target, words, altLimit);
-        } else {
-          matches = findWordsForPattern(grid[r], target, words, altLimit);
-        }
-
-        // Also apply reverse constraint if next row is locked
-        let nextLocked = null;
-        for (let q = r + 1; q <= lastRow; q++) {
-          if (chosen[q]) { nextLocked = chosen[q]; break; }
-        }
-        if (nextLocked && matches.length > 0) {
-          const revFiltered = matches.filter(w => isHardModeLegal(w, computePattern(w, target), nextLocked));
-          if (revFiltered.length > 0) matches = revFiltered;
-        }
-
-        const picked = matches.length
-          ? (useRandom ? matches[Math.floor(Math.random() * matches.length)] : matches[0])
-          : null;
-        chosen[r]       = picked;
-        alts[r]         = matches;
-        realPatterns[r] = picked ? computePattern(picked, target) : null;
       }
 
-    } else {
-      // ── REVERSE mode (no locked rows) ────────────────────────────────────────
-      for (let r = lastRow - 1; r >= 0; r--) {
-        if (chosen[r] !== null) continue;
-        const nextWord = chosen[r + 1];
-        let matches;
-        if (!nextWord) {
-          matches = findWordsForPattern(grid[r], target, words, altLimit);
-        } else {
-          matches = findWordsForPatternReverse(grid[r], target, words, nextWord, altLimit);
-          if (matches.length === 0) matches = findWordsForPattern(grid[r], target, words, altLimit);
-        }
-        const picked = matches.length
-          ? (useRandom ? matches[Math.floor(Math.random() * matches.length)] : matches[0])
-          : null;
-        chosen[r]       = picked;
-        alts[r]         = matches;
-        realPatterns[r] = picked ? computePattern(picked, target) : null;
+      let matches;
+      if (lockedPrior.length > 0) {
+        const constraints = buildHardModeConstraints(lockedPrior);
+        matches = findWordsForPatternHard(grid[r], target, words, constraints, altLimit);
+        if (matches.length === 0) matches = findWordsForPattern(grid[r], target, words, altLimit);
+      } else {
+        matches = findWordsForPattern(grid[r], target, words, altLimit);
       }
+
+      // Reverse filter only toward the next USER-LOCKED row (or win row)
+      let nextUserLocked = null;
+      for (let q = r + 1; q <= lastRow; q++) {
+        if (q === winRow) { nextUserLocked = target; break; }
+        if (lockedWords[q] && lockedValid[q] === true) { nextUserLocked = lockedWords[q]; break; }
+      }
+      if (nextUserLocked && matches.length > 0) {
+        const revFiltered = matches.filter(w => isHardModeLegal(w, computePattern(w, target), nextUserLocked));
+        if (revFiltered.length > 0) matches = revFiltered;
+      }
+
+      rowAlts[r] = matches; // full candidate list, independent of random picks
+      const picked = matches.length
+        ? (useRandom ? matches[Math.floor(Math.random() * matches.length)] : matches[0])
+        : null;
+      chosen[r]       = picked;
+      realPatterns[r] = picked ? computePattern(picked, target) : null;
     }
 
-    // Build results display
+        // Build results display
     for (let r = 0; r <= lastRow; r++) {
       const isWin    = r === winRow;
       const word     = chosen[r];
@@ -561,7 +537,7 @@ function generateWords() {
       // Display pattern: for locked rows use real computed pattern; otherwise use painted grid
       const displayPattern = (isLocked || isWin) ? realPatterns[r] : grid[r];
       if (word) {
-        found.push({ row: r + 1, word, pattern: displayPattern, isWin, isLocked, alternatives: alts[r] });
+        found.push({ row: r + 1, word, pattern: displayPattern, isWin, isLocked, alternatives: rowAlts[r] });
       } else {
         found.push({ row: r + 1, word: null, pattern: displayPattern, isWin: false, isLocked, alternatives: [] });
         allFound = false;
@@ -758,7 +734,6 @@ setBrush('green');
 renderPresets();
 
 document.getElementById('random-toggle').addEventListener('change', function() { useRandom = this.checked; });
-document.getElementById('reverse-toggle').addEventListener('change', function() { useReverse = this.checked; });
 
 const elAltLimit = document.getElementById('alt-limit');
 elAltLimit.addEventListener('change', function() { altLimit = Math.max(1, +this.value || 1); this.value = altLimit; });
