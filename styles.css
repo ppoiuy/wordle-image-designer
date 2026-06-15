@@ -363,7 +363,8 @@
     padding: 1px 4px;
     border-radius: 3px;
   }
-  .result-alt-word:hover { color: #999; background: #1a1a1a; cursor: default; }
+  .result-alt-word { cursor: pointer !important; }
+  .result-alt-word:hover { color: #c9b458; background: #1a1a10; border-left: 2px solid #c9b458; padding-left: 2px; }
 
   .result-sequence-word {
     font-family: 'Bebas Neue', sans-serif;

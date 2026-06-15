@@ -595,6 +595,16 @@ function generateWords() {
           const w = document.createElement('div');
           w.className = 'result-alt-word';
           w.textContent = alt;
+          w.title = `Click to lock row ${row} to "${alt}"`;
+          w.addEventListener('click', () => {
+            const rowIdx = row - 1;
+            lockedWords[rowIdx] = alt;
+            lockedValid[rowIdx] = true;
+            const inp = document.getElementById(`lock-input-${rowIdx}`);
+            if (inp) inp.value = alt;
+            revalidateAllLocks();
+            renderGrid();
+          });
           altsDiv.appendChild(w);
         });
         div.appendChild(altsDiv);
