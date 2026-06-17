@@ -606,3 +606,17 @@
   cursor: not-allowed !important;
 }
 .tile-locked:hover { transform: none !important; }
+
+/* Per-row lock clear button */
+.lock-clear-btn {
+  background: transparent;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  font-size: 0.6rem;
+  padding: 0;
+  line-height: 1;
+  text-align: left;
+  transition: color 0.15s;
+}
+.lock-clear-btn:hover { color: #f87; }

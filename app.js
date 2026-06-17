@@ -1,13 +1,20 @@
 // Pre-built set for O(1) target inclusion checks
 const BASE_WORDS_SET = new Set(WORDS);
+// Alphabetically sorted copy for when sort mode is 'alpha'
+const WORDS_ALPHA = [...WORDS].sort();
 
 let _wordListCache = null;
 let _wordListTarget = null;
+let _wordListSort = null;
+let sortByCommon = true; // true = frequency order (default), false = alphabetical
 
 function getWordList(t) {
-  if (_wordListCache && _wordListTarget === t) return _wordListCache;
+  const sort = sortByCommon ? 'common' : 'alpha';
+  if (_wordListCache && _wordListTarget === t && _wordListSort === sort) return _wordListCache;
   _wordListTarget = t;
-  _wordListCache = BASE_WORDS_SET.has(t) ? WORDS : [...WORDS, t];
+  _wordListSort = sort;
+  const base = sortByCommon ? WORDS : WORDS_ALPHA;
+  _wordListCache = BASE_WORDS_SET.has(t) ? base : [...base, t];
   return _wordListCache;
 }
 
@@ -389,6 +396,25 @@ function renderGrid() {
 
     lockArea.appendChild(lockInp);
     lockArea.appendChild(lockMsg);
+
+    if (!isAfterWin) {
+      const clearBtn = document.createElement('button');
+      clearBtn.className = 'lock-clear-btn';
+      clearBtn.textContent = '✕';
+      clearBtn.title = 'Clear locked word';
+      clearBtn.style.display = lockedWords[r] ? 'block' : 'none';
+      clearBtn.addEventListener('click', () => {
+        lockedWords[r] = '';
+        lockedValid[r] = null;
+        const inp = document.getElementById(`lock-input-${r}`);
+        const msg = document.getElementById(`lock-msg-${r}`);
+        if (inp) { inp.value = ''; inp.style.borderColor = ''; }
+        if (msg) { msg.textContent = ''; }
+        revalidateAllLocks();
+        renderGrid();
+      });
+      lockArea.appendChild(clearBtn);
+    }
     rowDiv.appendChild(lockArea);
 
     elGrid.appendChild(rowDiv);
@@ -744,6 +770,10 @@ setBrush('green');
 renderPresets();
 
 document.getElementById('random-toggle').addEventListener('change', function() { useRandom = this.checked; });
+document.getElementById('sort-toggle').addEventListener('change', function() {
+  sortByCommon = this.value === 'common';
+  _wordListCache = null; // invalidate cache
+});
 
 const elAltLimit = document.getElementById('alt-limit');
 elAltLimit.addEventListener('change', function() { altLimit = Math.max(1, +this.value || 1); this.value = altLimit; });
