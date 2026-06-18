@@ -477,7 +477,7 @@ function flipGrid(direction) {
 }
 
 // ─── Generate ────────────────────────────────────────────────────────────────
-let useRandom  = true;
+let useRandom  = false;
 let altLimit   = Infinity;
 
 function generateWords() {
