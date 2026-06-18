@@ -13,7 +13,7 @@ Paint a 5×6 Wordle grid and get a valid word sequence that matches your pattern
 
 ## Features
 
-- **Per-row word locking** — pin any row to a word; useful for reconstructing someone's game from their starting word and shared colors
+- **Per-row word locking** — pin any row to a word; useful for reconstructing someone's game from their starting word and shared colors; delete word by clicking the `✕` below each word entry field
 - **Click to lock** — click any word in the alternatives list to lock that row instantly
 - **Hard mode enforcement** — absent letters excluded, greens fixed, yellows reused; constraints accumulate across all locked rows
 - Drag to paint multiple tiles at once
