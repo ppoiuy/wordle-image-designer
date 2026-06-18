@@ -97,6 +97,13 @@
         Max alternatives: <input type="number" id="alt-limit" value="20" min="1" max="200" disabled>
         <input type="checkbox" id="alt-unlimited" checked> All
       </label>
+      <label class="random-toggle-label">
+        Sort alternatives:
+        <select id="sort-toggle" style="background:#111; border:1px solid #333; color:#ccc; font-family:'Space Mono',monospace; font-size:0.65rem; padding:3px 6px; border-radius:4px; cursor:pointer;">
+          <option value="common">Most common first</option>
+          <option value="alpha">Alphabetical</option>
+        </select>
+      </label>
     </div>
     <button class="action-btn" onclick="generateWords()">Generate Words</button>
   </div>
